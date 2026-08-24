@@ -2,7 +2,7 @@
 
 An end-to-end Machine Learning system for detecting fraudulent financial transactions using the PaySim dataset.
 
-The project covers the complete ML lifecycle: data analysis, preprocessing, feature engineering, model training and comparison, class imbalance analysis, threshold optimization, explainability with SHAP, production API development, an interactive dashboard, automated testing, Docker containerization, and cloud deployment.
+The project covers the complete ML lifecycle: data analysis, preprocessing, feature engineering, model training and comparison, class imbalance analysis, threshold optimization, explainability with SHAP, robustness validation, production API development, an interactive dashboard, automated testing, Docker containerization, and cloud deployment.
 
 ---
 
@@ -54,6 +54,8 @@ The system can:
 - Analyze individual transactions
 - Analyze CSV batches of transactions
 - Explain model behavior using SHAP
+- Evaluate temporal generalization and potential data leakage
+- Perform feature ablation analysis
 - Serve predictions through a REST API
 - Provide an interactive web dashboard
 - Run through Docker containers
@@ -191,7 +193,7 @@ Important observations included:
 
 ## Data Splitting
 
-The dataset was split into training, validation, and test sets while preserving the fraud distribution.
+The primary model-development workflow used a stratified train/validation/test split.
 
 | Dataset | Transactions | Fraud Cases |
 |---|---:|---:|
@@ -200,6 +202,8 @@ The dataset was split into training, validation, and test sets while preserving 
 | Test | 954,393 | 1,232 |
 
 The final test set remained untouched until the final production evaluation.
+
+A separate temporal holdout experiment was later performed to evaluate generalization from earlier transactions to future transactions.
 
 ---
 
@@ -216,7 +220,7 @@ Several fraud-specific features were created from the original transaction infor
 - `amount_to_orig_balance`
 - `orig_account_emptied`
 
-These features capture behavioral patterns in how account balances change during transactions.
+These features capture behavioral patterns in transaction amounts and account balance changes.
 
 Feature engineering produced a major improvement in fraud detection performance.
 
@@ -489,6 +493,8 @@ True Negatives:   953,161
 
 The production model detected **1,227 of 1,232 fraudulent transactions** while generating **zero false positives** on the final holdout test at the evaluated threshold.
 
+Because these results are unusually high, additional robustness and leakage analyses were performed below rather than assuming that the benchmark performance directly represents real-world generalization.
+
 ---
 
 ## FastAPI Backend
@@ -702,6 +708,188 @@ https://fraud-detection-system-production-b261.up.railway.app
 
 ---
 
+## Robustness and Leakage Analysis
+
+Because the model achieved unusually high performance on the synthetic PaySim dataset, additional experiments were performed to investigate:
+
+- Traditional overfitting
+- Random-split optimism
+- Temporal generalization
+- Post-transaction information leakage
+- Dominant feature shortcuts
+- Synthetic dataset artifacts
+
+### 1. Temporal Holdout Validation
+
+The original workflow used a stratified random split. To test whether this produced overly optimistic results, an additional chronological evaluation was performed.
+
+PaySim contains 743 simulation steps.
+
+The temporal experiment used:
+
+```text
+Training: step <= 378
+Testing:  step > 378
+```
+
+Temporal split statistics:
+
+| Dataset | Transactions | Fraud Cases | Fraud Rate |
+|---|---:|---:|---:|
+| Temporal Train | 5,444,003 | 4,207 | 0.0773% |
+| Temporal Test | 918,617 | 4,006 | 0.4361% |
+
+Results:
+
+| Evaluation | Precision | Recall | F1 Score | ROC-AUC | PR-AUC | FP | FN |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Random Holdout | 1.0000 | 0.9959 | 0.9980 | 0.9987 | 0.9960 | 0 | 5 |
+| Temporal Holdout | 1.0000 | 0.9988 | 0.9994 | 1.0000 | 1.0000 | 0 | 5 |
+
+The model remained highly effective when trained on earlier transactions and evaluated exclusively on future transactions.
+
+This indicates that the near-perfect performance is not explained by the random split alone.
+
+### 2. Pre-Transaction Validation
+
+The production-style feature set includes post-transaction balances such as:
+
+- `newbalanceOrig`
+- `newbalanceDest`
+
+and engineered features derived from those values.
+
+To determine whether these fields were responsible for the high performance, a separate pre-transaction experiment removed post-transaction information.
+
+The model was restricted to:
+
+- `step`
+- `type`
+- `amount`
+- `oldbalanceOrg`
+- `oldbalanceDest`
+- `amount_to_orig_balance`
+
+The same temporal split was used.
+
+Results:
+
+| Metric | Result |
+|---|---:|
+| Precision | 1.0000 |
+| Recall | 0.9998 |
+| F1 Score | 0.9999 |
+| ROC-AUC | 1.0000 |
+| PR-AUC | 1.0000 |
+| True Positives | 4,005 |
+| False Positives | 0 |
+| False Negatives | 1 |
+| True Negatives | 914,611 |
+
+Removing post-transaction information did not reduce performance.
+
+This indicates that post-transaction balance information is not the primary reason for the near-perfect benchmark results.
+
+### 3. Feature Ablation Study
+
+An ablation study was performed to determine which features were responsible for the unusually high performance.
+
+| Experiment | Precision | Recall | F1 Score | PR-AUC | FP | FN |
+|---|---:|---:|---:|---:|---:|---:|
+| Type only | 0.0000 | 0.0000 | 0.0000 | 0.0176 | 0 | 4,006 |
+| Type + Amount | 0.9892 | 0.1378 | 0.2419 | 0.2419 | 6 | 3,454 |
+| + Sender Old Balance | 0.9952 | 0.4658 | 0.6346 | 0.9033 | 9 | 2,140 |
+| + Receiver Old Balance | 0.9785 | 0.6932 | 0.8115 | 0.8854 | 61 | 1,229 |
+| + Amount-to-Balance Ratio | 1.0000 | 0.9998 | 0.9999 | ~1.0000 | 0 | 1 |
+
+The largest performance increase occurred after introducing:
+
+```text
+amount_to_orig_balance = amount / oldbalanceOrg
+```
+
+Without this ratio, the model achieved approximately:
+
+```text
+F1 Score: 81.15%
+Recall:   69.32%
+```
+
+After adding the ratio:
+
+```text
+F1 Score: 99.99%
+Recall:   99.98%
+```
+
+An additional experiment using only:
+
+```text
+amount
+oldbalanceOrg
+amount_to_orig_balance
+```
+
+also achieved approximately:
+
+```text
+Precision: 100%
+Recall:    99.98%
+F1 Score:  99.99%
+PR-AUC:    99.98%
+```
+
+This confirmed that the ratio itself contains an exceptionally strong fraud signal in PaySim.
+
+### 4. Dataset Shortcut Analysis
+
+A direct statistical analysis was performed to understand why `amount_to_orig_balance` is so predictive.
+
+For fraudulent transactions:
+
+```text
+Median ratio: 1.0
+25th percentile: 1.0
+75th percentile: 1.0
+```
+
+Most importantly:
+
+```text
+Fraud transactions with ratio between 0.99 and 1.01:
+97.63%
+
+Legitimate transactions with ratio between 0.99 and 1.01:
+0.15%
+```
+
+Therefore, approximately **97.6% of fraudulent transactions** in PaySim transfer an amount almost equal to the sender's entire original balance, while this behavior occurs in only approximately **0.15% of legitimate transactions**.
+
+This creates an unusually strong separation between the two classes.
+
+### Interpretation
+
+The additional experiments found no clear evidence that the near-perfect benchmark performance is caused by traditional overfitting or direct target leakage.
+
+The evidence showed that:
+
+- Performance remained strong on a future temporal holdout.
+- Random splitting was not responsible for the high performance.
+- Removing post-transaction balance information did not reduce performance.
+- Adding the `step` feature did not explain the performance.
+- Feature ablation identified `amount_to_orig_balance` as the dominant predictive signal.
+- Direct statistical analysis confirmed that this ratio follows an unusually strong fraud-specific pattern in PaySim.
+
+The near-perfect results are therefore largely explained by a **dataset-specific shortcut in the synthetic PaySim benchmark**.
+
+Because PaySim is synthetic, these results should **not** be interpreted as evidence that the model would achieve the same performance on real-world banking transactions.
+
+This analysis demonstrates an important ML engineering principle:
+
+> Extremely high benchmark performance should be investigated for leakage, temporal effects, unrealistic feature relationships, and dataset-specific shortcuts before being interpreted as real-world generalization.
+
+---
+
 ## Project Structure
 
 ```text
@@ -737,7 +925,8 @@ fraud-detection-system/
 |   |-- metadata.json
 |   |-- model_comparison.csv
 |   |-- shap_feature_importance.csv
-|   `-- threshold_results.csv
+|   |-- threshold_results.csv
+|   `-- ablation_study_results.csv
 |
 |-- src/
 |   |-- inspect_data.py
@@ -753,7 +942,10 @@ fraud-detection-system/
 |   |-- shap_explain.py
 |   |-- production_model.py
 |   |-- predict.py
-|   `-- transformers.py
+|   |-- transformers.py
+|   |-- temporal_validation.py
+|   |-- pretransaction_validation.py
+|   `-- ablation_study.py
 |
 |-- tests/
 |   |-- test_api.py
@@ -814,6 +1006,10 @@ fraud-detection-system/
 
 Stratified splitting preserves the extremely rare fraud distribution across training, validation, and test datasets.
 
+### Temporal Validation
+
+A chronological holdout was added to verify that strong model performance persisted when training on earlier transactions and evaluating on future transactions.
+
 ### Separate Validation and Test Sets
 
 The validation set was used for model comparison and threshold analysis.
@@ -838,7 +1034,15 @@ The project emphasizes:
 
 The engineered-feature Random Forest was directly compared against a raw-feature Random Forest.
 
-This verified that the performance improvement was associated with the engineered fraud signals.
+Feature ablation was later added to determine which engineered signals were responsible for the performance improvement.
+
+### Leakage Analysis
+
+Post-transaction features were removed in a separate experiment to test whether future information was responsible for the near-perfect results.
+
+### Dataset Shortcut Analysis
+
+The unusually strong `amount_to_orig_balance` signal was investigated statistically rather than treating the near-perfect benchmark performance as evidence of real-world generalization.
 
 ### Explainability
 
@@ -868,6 +1072,8 @@ The deployed Streamlit dashboard communicates with FastAPI using Railway's priva
 
 Possible extensions include:
 
+- Evaluate the system on additional fraud datasets with different fraud-generation patterns
+- Build a dedicated production pre-transaction model using only features available at authorization time
 - Real-time transaction streaming
 - Model monitoring
 - Data drift detection
@@ -886,4 +1092,8 @@ Possible extensions include:
 
 This is an educational machine learning portfolio project trained on the synthetic PaySim dataset.
 
-The model should not be used for real financial or banking decisions without additional validation, monitoring, security controls, regulatory review, and domain-specific evaluation.
+The reported performance reflects evaluation on PaySim and should not be interpreted as expected performance on real-world financial transactions.
+
+The robustness analysis identified a strong dataset-specific relationship between transaction amount and sender balance that contributes substantially to the near-perfect benchmark results.
+
+The model should not be used for real financial or banking decisions without external validation on representative real-world data, production monitoring, security controls, regulatory review, and domain-specific evaluation.

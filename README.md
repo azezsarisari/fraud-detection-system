@@ -4,15 +4,37 @@ An end-to-end Machine Learning system for detecting fraudulent financial transac
 
 The project covers the complete ML lifecycle: data analysis, preprocessing, feature engineering, model training and comparison, class imbalance analysis, threshold optimization, explainability with SHAP, production API development, an interactive dashboard, automated testing, Docker containerization, and cloud deployment.
 
+---
+
+## Production Dashboard
+
+The deployed Streamlit dashboard provides an interactive interface for analyzing financial transactions in real time.
+
+Users can enter transaction information manually and receive:
+
+- Fraud or legitimate classification
+- Fraud probability score
+- Transaction risk level
+- Immediate fraud alerts
+
+The example below shows a suspicious `TRANSFER` transaction detected by the production model with a **99.69% fraud probability** and a **CRITICAL** risk level.
+
+![Fraud Detection Dashboard](images/dashboard_demo.png)
+
+---
+
 ## Live Demo
 
 ### Streamlit Dashboard
+
 https://cozy-communication-production-435b.up.railway.app
 
 ### FastAPI Swagger Documentation
+
 https://fraud-detection-system-production-b261.up.railway.app/docs
 
 ### API Health Check
+
 https://fraud-detection-system-production-b261.up.railway.app/health
 
 ---
@@ -211,13 +233,15 @@ The comparison demonstrates that the engineered features substantially improved 
 
 ## Machine Learning Models
 
-Three main machine learning models were evaluated.
+Three main machine learning models were evaluated:
+
+1. Logistic Regression
+2. Random Forest
+3. XGBoost
 
 ### Logistic Regression
 
 Logistic Regression was used as the baseline model.
-
-Results:
 
 | Metric | Score |
 |---|---:|
@@ -321,7 +345,7 @@ The classification threshold was analyzed instead of relying only on the default
 
 ### Random Forest
 
-Best F1 result:
+Best validation F1 result:
 
 ```text
 Threshold: 0.24
@@ -407,7 +431,7 @@ SHAP makes the system more interpretable by providing insight into why the model
 
 ## Production Model
 
-The final production pipeline combines:
+The production pipeline combines:
 
 ```text
 Raw Transaction
@@ -695,6 +719,7 @@ fraud-detection-system/
 |   `-- portfolio_demo.csv
 |
 |-- images/
+|   |-- dashboard_demo.png
 |   |-- fraud_by_transaction_type.png
 |   |-- fraud_rate_by_type.png
 |   |-- precision_recall_curve.png

@@ -1,0 +1,14 @@
+{
+    "model": "RandomForestClassifier",
+    "dataset": "PaySim",
+    "threshold": 0.5,
+    "precision": 1.0,
+    "recall": 0.9959415584415584,
+    "f1": 0.9979666531110207,
+    "roc_auc": 0.9986921256179216,
+    "pr_auc": 0.9960203407994944,
+    "true_positives": 1227,
+    "false_positives": 0,
+    "false_negatives": 5,
+    "true_negatives": 953161
+}
